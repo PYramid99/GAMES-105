@@ -1,3 +1,5 @@
+from typing import List, Tuple, Dict
+
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
@@ -19,7 +21,7 @@ def load_motion_data(bvh_file_path):
 
 
 
-def part1_calculate_T_pose(bvh_file_path):
+def part1_calculate_T_pose(bvh_file_path: str) -> Tuple[List[str], List[int], np.ndarray]:
     """请填写以下内容
     输入： bvh 文件路径
     输出:
@@ -30,10 +32,53 @@ def part1_calculate_T_pose(bvh_file_path):
     Tips:
         joint_name顺序应该和bvh一致
     """
-    joint_name = None
-    joint_parent = None
-    joint_offset = None
-    return joint_name, joint_parent, joint_offset
+    bvh_file = open(bvh_file_path, "r")
+    lines = bvh_file.readlines()
+    bvh_file.close()
+
+    # results:
+    joint_name: List[str] = []
+    joint_parent: List[str] = []
+    joint_offset: List[Tuple[float, float, float]] = []
+
+    # helpers:
+    joint_stack: List[str] = []
+    joint_index: Dict[str, int] = {}
+
+    def parse_line(line: str) -> List[str]:
+        return line.split()
+
+    def parse_joint(lines: List[str], line_idx: int) -> int:
+        name_items = parse_line(lines[line_idx])
+        offset_items = parse_line(lines[line_idx + 2])
+
+        name = name_items[1] if name_items[0] != "End" else joint_stack[-1] + "_end"
+        parent = joint_index[joint_stack[-1]] if len(joint_stack) > 0 else -1
+        offset = (float(offset_items[1]), float(offset_items[2]), float(offset_items[3]))
+
+        joint_name.append(name)
+        joint_parent.append(parent)
+        joint_offset.append(offset)
+
+        joint_stack.append(name)
+        joint_index[name] = len(joint_name) - 1
+
+        return line_idx + 4 if name_items[0] != "End" else line_idx + 3
+
+    # parse:
+    i: int = 0
+    while i < len(lines):
+        items = parse_line(lines[i])
+
+        if items[0] == "ROOT" or items[0] == "JOINT" or items[0] == "End":
+            i = parse_joint(lines, i)
+        elif items[0] == "}":
+            joint_stack.pop()
+            i += 1
+        else:
+            i += 1
+    
+    return joint_name, joint_parent, np.array(joint_offset)
 
 
 def part2_forward_kinematics(joint_name, joint_parent, joint_offset, motion_data, frame_id):
