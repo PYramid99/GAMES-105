@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-def load_motion_data(bvh_file_path: str):
+def load_motion_data(bvh_file_path: str) -> np.ndarray:
     """part2 辅助函数，读取bvh文件"""
     with open(bvh_file_path, 'r') as f:
         lines = f.readlines()
@@ -38,7 +38,7 @@ def part1_calculate_T_pose(bvh_file_path: str) -> Tuple[List[str], List[int], np
 
     # results:
     joint_name: List[str] = []
-    joint_parent: List[str] = []
+    joint_parent: List[int] = []
     joint_offset: List[Tuple[float, float, float]] = []
 
     # helpers:
@@ -66,7 +66,7 @@ def part1_calculate_T_pose(bvh_file_path: str) -> Tuple[List[str], List[int], np
         return line_idx + 4 if name_items[0] != "End" else line_idx + 3
 
     # parse:
-    i: int = 0
+    i = 0
     while i < len(lines):
         items = parse_line(lines[i])
 
@@ -134,7 +134,7 @@ def part2_forward_kinematics(joint_name: List[str],
     return np.array(joint_positions), np.array(joint_orientations)
 
 
-def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
+def part3_retarget_func(T_pose_bvh_path: str, A_pose_bvh_path: str) -> np.ndarray:
     """
     将 A-pose的bvh重定向到T-pose上
     输入: 两个bvh文件的路径
@@ -144,5 +144,46 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
         两个bvh的joint name顺序可能不一致哦(
         as_euler时也需要大写的XYZ
     """
-    motion_data = None
+    # raw data:
+    joint_name_T, joint_parent_T, joint_offset_T = part1_calculate_T_pose(T_pose_bvh_path)
+    joint_name_A, joint_parent_A, joint_offset_A = part1_calculate_T_pose(A_pose_bvh_path)
+
+    motion_data_A = load_motion_data(A_pose_bvh_path)
+
+    # helpers:
+    joint_name_T_20: List[str] = []
+    for name in joint_name_T:
+        if not name.endswith("_end"):
+            joint_name_T_20.append(name)
+    
+    joint_name_A_20: List[str] = []
+    for name in joint_name_A:
+        if not name.endswith("_end"):
+            joint_name_A_20.append(name)
+
+    joint_index_A: Dict[str, int] = {}
+
+    for i, name in enumerate(joint_name_A_20):
+        joint_index_A[name] = i
+
+    # results:
+    motion_data = np.zeros_like(motion_data_A)
+
+    # retarget:
+    motion_data[:, 0:3] = motion_data_A[:, 0:3]
+    
+    for i, name in enumerate(joint_name_T_20):
+        if name.endswith("_end"):
+            continue
+        
+        i_A = joint_index_A[name]
+        joint_motion_data = motion_data_A[:, 3 * (i_A + 1):3 * (i_A + 2)]
+        
+        if name == "lShoulder":
+            joint_motion_data[:, 2] -= 45.0
+        elif name == "rShoulder":
+            joint_motion_data[:, 2] += 45.0
+
+        motion_data[:, 3 * (i + 1):3 * (i + 2)] = joint_motion_data
+
     return motion_data

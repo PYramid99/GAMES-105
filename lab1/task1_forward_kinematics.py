@@ -43,7 +43,7 @@ def part2_animation(viewer, bvh_file_path):
     viewer.run()
 
 
-def part3_retarget(viewer, T_pose_bvh_path, A_pose_bvh_path):
+def part3_retarget(viewer: SimpleViewer, T_pose_bvh_path: str, A_pose_bvh_path: str):
     """
     将 A-pose的bvh重定向到T-pose上
     Tips:
@@ -79,10 +79,10 @@ def main():
 
     # part2
     # part2_one_pose(viewer, bvh_file_path)
-    part2_animation(viewer, bvh_file_path)
+    # part2_animation(viewer, bvh_file_path)
 
     # part3
-    # part3_retarget(viewer, "data/walk60.bvh", "data/A_pose_run.bvh")
+    part3_retarget(viewer, "data/walk60.bvh", "data/A_pose_run.bvh")
 
 
 if __name__ == "__main__":
