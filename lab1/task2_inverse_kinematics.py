@@ -13,7 +13,7 @@ class MetaData:
         self.root_joint = root_joint
         self.end_joint = end_joint
 
-    def get_path_from_root_to_end(self):
+    def get_path_from_root_to_end(self) -> Tuple[List[int], List[str], List[int], List[int]]:
         """
         辅助函数，返回从root节点到end节点的路径
         
@@ -170,7 +170,7 @@ def main():
     # part1
     # part1_simple(viewer, np.array([0.5, 0.75, 0.5]))
     # part1_hard(viewer, np.array([0.5, 0.5, 0.5]))
-    # part1_animation(viewer, np.array([0.5, 0.5, 0.5]))
+    part1_animation(viewer, np.array([0.5, 0.5, 0.5]))
     
     # part2
     # part2(viewer, 'data/walk60.bvh')
