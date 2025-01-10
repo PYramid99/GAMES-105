@@ -8,7 +8,8 @@ from scipy.spatial.transform import Rotation as R
 from task2_inverse_kinematics import MetaData
 
 class Task2Pose:
-    def __init__(self, name: str, position: np.ndarray = np.array([0.0, 0.0, 0.0], dtype=float), orientation: np.ndarray = np.array([0.0, 0.0, 0.0, 1.0], dtype=float)):
+    def __init__(self, index: int, name: str, position: np.ndarray = np.array([0.0, 0.0, 0.0], dtype=float), orientation: np.ndarray = np.array([0.0, 0.0, 0.0, 1.0], dtype=float)):
+        self.index = index
         self.name = name
 
         self.local_position = deepcopy(position)
@@ -93,35 +94,35 @@ class Task2Pose:
         self.set_global_position(self.get_global_position())
         self.set_global_orientation(self.get_global_orientation())
 
-def ccd_ik(ik_joint_poses: List[Task2Pose], target_position: np.ndarray, error_precision: float = 0.01, max_iterations: int = 16):
-    def target_distance() -> float:
-        return np.linalg.norm(target_position - ik_joint_poses[-1].get_global_position())
+def move_to_target_direction_rotation(current_direction: np.ndarray, target_direction: np.ndarray, epsilon: float = 1e-6) -> np.ndarray:
+    current_direction = current_direction / np.linalg.norm(current_direction)
+    target_direction = target_direction / np.linalg.norm(target_direction)
     
-    def move_to_target_direction_rotation(current_direction: np.ndarray, target_direction: np.ndarray, epsilon: float = 1e-6) -> np.ndarray:
-        current_direction = current_direction / np.linalg.norm(current_direction)
-        target_direction = target_direction / np.linalg.norm(target_direction)
-        
-        dot = np.dot(current_direction, target_direction)
-        
-        if abs(1.0 - dot) < epsilon:
-            return np.array([0.0, 0.0, 0.0, 1.0])
-        
-        if abs(-1 - dot) < epsilon:
-            axis = np.cross(current_direction, np.array([0.0, 1.0, 0.0]))
-            if np.linalg.norm(axis) < epsilon:
-                axis = np.cross(current_direction, np.array([0.0, 0.0, 1.0]))
-            axis = axis / np.linalg.norm(axis)
-            theta = np.pi
-            w = np.cos(theta / 2)
-            x, y, z = axis * np.sin(theta / 2)
-            return np.array([x, y, z, w])
-        
-        theta = np.arccos(dot)
-        axis = np.cross(current_direction, target_direction)
+    dot = np.dot(current_direction, target_direction)
+    
+    if abs(1.0 - dot) < epsilon:
+        return np.array([0.0, 0.0, 0.0, 1.0])
+    
+    if abs(-1 - dot) < epsilon:
+        axis = np.cross(current_direction, np.array([0.0, 1.0, 0.0]))
+        if np.linalg.norm(axis) < epsilon:
+            axis = np.cross(current_direction, np.array([0.0, 0.0, 1.0]))
         axis = axis / np.linalg.norm(axis)
+        theta = np.pi
         w = np.cos(theta / 2)
         x, y, z = axis * np.sin(theta / 2)
         return np.array([x, y, z, w])
+    
+    theta = np.arccos(dot)
+    axis = np.cross(current_direction, target_direction)
+    axis = axis / np.linalg.norm(axis)
+    w = np.cos(theta / 2)
+    x, y, z = axis * np.sin(theta / 2)
+    return np.array([x, y, z, w])
+
+def ccd_ik(ik_joint_poses: List[Task2Pose], target_position: np.ndarray, error_precision: float = 0.01, max_iterations: int = 16):
+    def target_distance() -> float:
+        return np.linalg.norm(target_position - ik_joint_poses[-1].get_global_position())
 
     iteration = 0
     while target_distance() >= error_precision and iteration < max_iterations:
@@ -156,14 +157,14 @@ def part1_inverse_kinematics(meta_data: MetaData, joint_positions: np.ndarray, j
 
     joint_poses: List[Task2Pose] = []
     for joint_i in range(joint_num):
-        joint_pose = Task2Pose(joint_name[joint_i], joint_positions[joint_i], joint_orientations[joint_i])
+        joint_pose = Task2Pose(joint_i, joint_name[joint_i], joint_positions[joint_i], joint_orientations[joint_i])
         if joint_parent[joint_i] != -1:
             joint_pose.set_parent(joint_poses[joint_parent[joint_i]])
         joint_poses.append(joint_pose)
 
     ik_joint_poses: List[Task2Pose] = []
     for i, joint_i in enumerate(path):
-        joint_pose = Task2Pose(joint_name[joint_i], joint_positions[joint_i], joint_orientations[joint_i])
+        joint_pose = Task2Pose(joint_i, joint_name[joint_i], joint_positions[joint_i], joint_orientations[joint_i])
         if i > 0:
             joint_pose.set_parent(ik_joint_poses[i - 1])
         ik_joint_poses.append(joint_pose)
@@ -182,8 +183,22 @@ def part1_inverse_kinematics(meta_data: MetaData, joint_positions: np.ndarray, j
                 joint_poses[joint_i].set_global_position(joint.get_global_position())
                 joint_poses[joint_i].set_global_orientation(joint.get_global_orientation())
             elif joint_i in path2:
-                ik_joint_i_parent_orientation = joint.parent.get_global_orientation() if joint.parent != None else joint_orientations[joint_i]
-                joint_poses[joint_i].set_global_orientation(ik_joint_i_parent_orientation)
+                if joint_i == path2[0]:
+                    joint_poses[joint_i].set_global_orientation(joint_orientations[joint_i])
+                else:
+                    ik_joint_i_position = joint.get_global_position()
+                    ik_joint_i_parent_position = joint.parent.get_global_position()
+                    target_direction = ik_joint_i_parent_position - ik_joint_i_position
+                    
+                    ik_joint_i_original_position = joint_positions[joint_i]
+                    ik_joint_i_parent_original_position = joint_positions[joint.parent.index]
+                    original_direction = ik_joint_i_parent_original_position - ik_joint_i_original_position
+
+                    rotation = move_to_target_direction_rotation(original_direction, target_direction)
+                    joint_i_orientation = (R.from_quat(rotation) * R.from_quat(joint_orientations[joint_i])).as_quat()
+                    joint_poses[joint_i].set_global_orientation(joint_i_orientation)
+                    joint_poses[joint_i].set_global_position(joint.get_global_position())
+
 
     for joint_i in range(joint_num):
         joint_positions[joint_i] = joint_poses[joint_i].get_global_position()
