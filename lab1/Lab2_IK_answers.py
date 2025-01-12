@@ -1,4 +1,4 @@
-from typing import List, Type
+from typing import List, Tuple
 
 from copy import deepcopy
 
@@ -94,6 +94,20 @@ class Task2Pose:
         self.set_global_position(self.get_global_position())
         self.set_global_orientation(self.get_global_orientation())
 
+def init_joint_poses(out_joint_poses: List[Task2Pose], joint_num: int, joint_name: List[str], joint_parent: List[int], joint_positions: np.ndarray, joint_orientations: np.ndarray):
+    for joint_i in range(joint_num):
+        joint_pose = Task2Pose(joint_i, joint_name[joint_i], joint_positions[joint_i], joint_orientations[joint_i])
+        if joint_parent[joint_i] != -1:
+            joint_pose.set_parent(out_joint_poses[joint_parent[joint_i]])
+        out_joint_poses.append(joint_pose)
+
+def init_ik_joint_poses(out_ik_joint_poses: List[Task2Pose], joint_name: List[str], path: List[int], joint_positions: np.ndarray, joint_orientations: np.ndarray):
+    for i, joint_i in enumerate(path):
+        joint_pose = Task2Pose(joint_i, joint_name[joint_i], joint_positions[joint_i], joint_orientations[joint_i])
+        if i > 0:
+            joint_pose.set_parent(out_ik_joint_poses[i - 1])
+        out_ik_joint_poses.append(joint_pose)
+
 def move_to_target_direction_rotation(current_direction: np.ndarray, target_direction: np.ndarray, epsilon: float = 1e-6) -> np.ndarray:
     current_direction = current_direction / np.linalg.norm(current_direction)
     target_direction = target_direction / np.linalg.norm(target_direction)
@@ -126,13 +140,44 @@ def ccd_ik(ik_joint_poses: List[Task2Pose], target_position: np.ndarray, error_p
 
     iteration = 0
     while target_distance() >= error_precision and iteration < max_iterations:
-        for joint_pose in reversed(ik_joint_poses[2:]):
+        for joint_pose in reversed(ik_joint_poses[1:]):
             current_direction = ik_joint_poses[-1].get_global_position() - joint_pose.parent.get_global_position()
             target_direction = target_position - joint_pose.parent.get_global_position()
             rotation = move_to_target_direction_rotation(current_direction, target_direction)
             target_orientation = (R.from_quat(rotation) * R.from_quat(joint_pose.parent.get_global_orientation())).as_quat()
             joint_pose.parent.set_global_orientation(target_orientation)
         iteration += 1
+
+def apply_ik_results(out_joint_positions: np.ndarray, out_joint_orientations: np.ndarray, joint_num: int, path: List[int], path1: List[int], path2: List[int], joint_poses: List[Task2Pose], ik_joint_poses: List[Task2Pose]):
+    for joint_i in range(joint_num):
+        if joint_i in path:
+            joint = ik_joint_poses[path.index(joint_i)]
+            if joint_i == 0:
+                joint_poses[joint_i].set_global_position(joint.get_global_position())
+                joint_poses[joint_i].set_global_orientation(joint.get_global_orientation())
+            elif joint_i in path1:
+                joint_poses[joint_i].set_global_position(joint.get_global_position())
+                joint_poses[joint_i].set_global_orientation(joint.get_global_orientation())
+            elif joint_i in path2:
+                if joint_i == path2[0]:
+                    joint_poses[joint_i].set_global_orientation(joint.get_global_orientation())
+                else:
+                    ik_joint_i_position = joint.get_global_position()
+                    ik_joint_i_parent_position = joint.parent.get_global_position()
+                    target_direction = ik_joint_i_parent_position - ik_joint_i_position
+                    
+                    ik_joint_i_original_position = out_joint_positions[joint_i]
+                    ik_joint_i_parent_original_position = out_joint_positions[joint.parent.index]
+                    original_direction = ik_joint_i_parent_original_position - ik_joint_i_original_position
+
+                    rotation = move_to_target_direction_rotation(original_direction, target_direction)
+                    joint_i_orientation = (R.from_quat(rotation) * R.from_quat(out_joint_orientations[joint_i])).as_quat()
+                    joint_poses[joint_i].set_global_orientation(joint_i_orientation)
+                    joint_poses[joint_i].set_global_position(joint.get_global_position())
+
+    for joint_i in range(joint_num):
+        out_joint_positions[joint_i] = joint_poses[joint_i].get_global_position()
+        out_joint_orientations[joint_i] = joint_poses[joint_i].get_global_orientation()
 
 def part1_inverse_kinematics(meta_data: MetaData, joint_positions: np.ndarray, joint_orientations: np.ndarray, target_pose: np.ndarray):
     """
@@ -156,60 +201,47 @@ def part1_inverse_kinematics(meta_data: MetaData, joint_positions: np.ndarray, j
     joint_num = len(joint_name)
 
     joint_poses: List[Task2Pose] = []
-    for joint_i in range(joint_num):
-        joint_pose = Task2Pose(joint_i, joint_name[joint_i], joint_positions[joint_i], joint_orientations[joint_i])
-        if joint_parent[joint_i] != -1:
-            joint_pose.set_parent(joint_poses[joint_parent[joint_i]])
-        joint_poses.append(joint_pose)
+    init_joint_poses(joint_poses, joint_num, joint_name, joint_parent, joint_positions, joint_orientations)
 
     ik_joint_poses: List[Task2Pose] = []
-    for i, joint_i in enumerate(path):
-        joint_pose = Task2Pose(joint_i, joint_name[joint_i], joint_positions[joint_i], joint_orientations[joint_i])
-        if i > 0:
-            joint_pose.set_parent(ik_joint_poses[i - 1])
-        ik_joint_poses.append(joint_pose)
-    
+    init_ik_joint_poses(ik_joint_poses, joint_name, path, joint_positions, joint_orientations)
+
     # ik:
-    ccd_ik(ik_joint_poses, target_pose, error_precision=0.01, max_iterations=16)
+    ccd_ik(ik_joint_poses, target_pose)
     
     # apply ik results:
-    for joint_i in range(joint_num):
-        if joint_i in path:
-            joint = ik_joint_poses[path.index(joint_i)]
-            if joint_i == 0:
-                joint_poses[joint_i].set_global_position(joint.get_global_position())
-                joint_poses[joint_i].set_global_orientation(joint.get_global_orientation())
-            elif joint_i in path1:
-                joint_poses[joint_i].set_global_position(joint.get_global_position())
-                joint_poses[joint_i].set_global_orientation(joint.get_global_orientation())
-            elif joint_i in path2:
-                if joint_i == path2[0]:
-                    joint_poses[joint_i].set_global_orientation(joint_orientations[joint_i])
-                else:
-                    ik_joint_i_position = joint.get_global_position()
-                    ik_joint_i_parent_position = joint.parent.get_global_position()
-                    target_direction = ik_joint_i_parent_position - ik_joint_i_position
-                    
-                    ik_joint_i_original_position = joint_positions[joint_i]
-                    ik_joint_i_parent_original_position = joint_positions[joint.parent.index]
-                    original_direction = ik_joint_i_parent_original_position - ik_joint_i_original_position
-
-                    rotation = move_to_target_direction_rotation(original_direction, target_direction)
-                    joint_i_orientation = (R.from_quat(rotation) * R.from_quat(joint_orientations[joint_i])).as_quat()
-                    joint_poses[joint_i].set_global_orientation(joint_i_orientation)
-                    joint_poses[joint_i].set_global_position(joint.get_global_position())
-
-
-    for joint_i in range(joint_num):
-        joint_positions[joint_i] = joint_poses[joint_i].get_global_position()
-        joint_orientations[joint_i] = joint_poses[joint_i].get_global_orientation()
+    apply_ik_results(joint_positions, joint_orientations, joint_num, path, path1, path2, joint_poses, ik_joint_poses)
     
     return joint_positions, joint_orientations
 
-def part2_inverse_kinematics(meta_data, joint_positions, joint_orientations, relative_x, relative_z, target_height):
+def part2_inverse_kinematics(meta_data: MetaData, joint_positions: np.ndarray, joint_orientations: np.ndarray, relative_x: float, relative_z: float, target_height: float) -> Tuple[np.ndarray, np.ndarray]:
     """
     输入lWrist相对于RootJoint前进方向的xz偏移，以及目标高度，IK以外的部分与bvh一致
     """
+    # ik path:
+    path, path_name, path1, path2 = meta_data.get_path_from_root_to_end()
+
+    # joint info:
+    joint_name = meta_data.joint_name
+    joint_parent = meta_data.joint_parent
+    joint_num = len(joint_name)
+
+    joint_poses: List[Task2Pose] = []
+    init_joint_poses(joint_poses, joint_num, joint_name, joint_parent, joint_positions, joint_orientations)
+
+    ik_joint_poses: List[Task2Pose] = []
+    init_ik_joint_poses(ik_joint_poses, joint_name, path, joint_positions, joint_orientations)
+
+    # ik target:
+    root_joint_position = joint_poses[0].get_global_position()
+    ik_target = root_joint_position + np.array([relative_x, 0.0, relative_z], dtype=float)
+    ik_target[1] = target_height
+
+    # ik:
+    ccd_ik(ik_joint_poses, ik_target)
+
+    # apply ik results:
+    apply_ik_results(joint_positions, joint_orientations, joint_num, path, path1, path2, joint_poses, ik_joint_poses)
     
     return joint_positions, joint_orientations
 
